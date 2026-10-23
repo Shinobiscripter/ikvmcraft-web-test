@@ -11,7 +11,7 @@ function proxyConsole(name: string, color: string) {
 	console[name] = (...args) => {
 		let str;
 		try {
-			str = args.join(" ");
+			str = args.map(x => x instanceof Error ? x.stack ?? x.message : String(x)).join(" ");
 		} catch {
 			str = "<failed to render>";
 		}
@@ -19,7 +19,8 @@ function proxyConsole(name: string, color: string) {
 		for (const logger of loglisteners) {
 			logger({ color, log: str });
 		}
-		//logs.push(str);
+		logs.push(str);
+		if (logs.length > 2000) logs.shift();
 	};
 	return old;
 }

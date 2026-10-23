@@ -132,7 +132,10 @@ interface IntegrityExpectation {
 	size?: number;
 }
 
+export interface DownloadProgress { stage: string; completed?: number; total?: number; }
+
 export interface DownloadMinecraftVersionToOpfsOptions {
+	onProgress?: (progress: DownloadProgress) => void;
 	prismMetaBaseUrl?: string;
 	mojangVersionManifestUrl?: string;
 	resourceBaseUrl?: string;
@@ -260,7 +263,21 @@ async function proxyFetch(input: RequestInfo | URL, init?: RequestInit): Promise
 	const request = init === undefined ? baseRequest : new Request(baseRequest, init);
 	const requestUrl = new URL(request.url, location.href);
 	const proxiedRequest = new Request(toProxyPath(requestUrl), request);
-	return fetch(proxiedRequest);
+	// CDN/proxy failures are transient; keep retries bounded and report each one.
+	for (let attempt = 0; ; attempt++) {
+		try {
+			const response = await fetch(proxiedRequest.clone(), {
+				signal: AbortSignal.any([request.signal, AbortSignal.timeout(60000)]),
+			});
+			if (attempt === 3 || (response.status !== 429 && response.status !== 408 && response.status < 500)) return response;
+			await response.body?.cancel();
+			console.warn(`[download] HTTP ${response.status}, retry ${attempt + 1}/3: ${requestUrl}`);
+		} catch (error) {
+			if (attempt === 3 || request.signal.aborted) throw error;
+			console.warn(`[download] retry ${attempt + 1}/3: ${requestUrl}`, error);
+		}
+		await new Promise(resolve => setTimeout(resolve, 500 * 2 ** attempt));
+	}
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -802,7 +819,10 @@ async function runConcurrently<T>(
 		}
 	});
 
-	await Promise.all(runners);
+	// Wait for every writer before reporting failure, allowing safe Retry/Reinstall.
+	const results = await Promise.allSettled(runners);
+	const failed = results.find((r): r is PromiseRejectedResult => r.status === "rejected");
+	if (failed) throw failed.reason;
 }
 
 export async function downloadMinecraftVersionToOpfs(
@@ -834,6 +854,7 @@ async function downloadMinecraftVersionToOpfsImpl(
 		DEFAULT_MAX_CONCURRENT_LIBRARY_DOWNLOADS,
 	);
 
+	options.onProgress?.({ stage: "Downloading metadata" });
 	const requestedVersion = ensureSafePathSegment(version, "version");
 	const versionListUrl = new URL("net.minecraft/index.json", prismMetaBaseUrl).toString();
 	const versionList = await fetchJson<PrismVersionList>(versionListUrl);
@@ -876,6 +897,8 @@ async function downloadMinecraftVersionToOpfsImpl(
 	await writeFileToOpfs(root, versionJsonPath, versionManifestText);
 
 	const libraries = collectLibraryDownloads(versionManifest.libraries, libraryBaseUrl, minecraftOsName);
+	let librariesDone = 0;
+	options.onProgress?.({ stage: "Downloading libraries", completed: 0, total: libraries.length });
 	await runConcurrently(libraries, maxConcurrentLibraryDownloads, async (library) => {
 		const libraryData = await downloadBinary(
 			library.url,
@@ -884,8 +907,10 @@ async function downloadMinecraftVersionToOpfsImpl(
 		);
 		const libraryPath = `${opfsRootDirectory}/libraries/${library.relativePath}`;
 		await writeFileToOpfs(root, libraryPath, libraryData);
+		options.onProgress?.({ stage: "Downloading libraries", completed: ++librariesDone, total: libraries.length });
 	});
 
+	options.onProgress?.({ stage: "Downloading Minecraft client" });
 	const clientJarData = await downloadBinary(clientDownload.url, clientDownload, `client jar '${resolvedVersion}'`);
 	const clientJarPath = `${versionDirectory}/${CLIENT_JAR_FILENAME}`;
 	await writeFileToOpfs(root, clientJarPath, clientJarData);
@@ -913,6 +938,8 @@ async function downloadMinecraftVersionToOpfsImpl(
 	await writeFileToOpfs(root, assetIndexPath, assetIndexText);
 
 	const assetObjects = collectAssetObjects(parsedAssetIndex);
+	let assetsDone = 0;
+	options.onProgress?.({ stage: "Downloading assets", completed: 0, total: assetObjects.length });
 	await runConcurrently(assetObjects, maxConcurrentAssetDownloads, async (assetObject) => {
 		const prefix = assetObject.hash.slice(0, 2);
 		const objectUrl = new URL(`${prefix}/${assetObject.hash}`, resourceBaseUrl).toString();
@@ -923,6 +950,7 @@ async function downloadMinecraftVersionToOpfsImpl(
 			`asset object '${assetObject.hash}'`,
 		);
 		await writeFileToOpfs(root, objectPath, objectData);
+		options.onProgress?.({ stage: "Downloading assets", completed: ++assetsDone, total: assetObjects.length });
 	});
 
 	return {
@@ -1228,6 +1256,7 @@ async function downloadFabricMinecraftVersionToOpfsImpl(
 		"fabric intermediary version",
 	);
 
+	options.onProgress?.({ stage: "Downloading Fabric metadata" });
 	const [loaderManifest, intermediaryManifest] = await Promise.all([
 		fetchPrismPackageManifest<PrismFabricManifest>(prismMetaBaseUrl, FABRIC_LOADER_PACKAGE, loaderVersion),
 		fetchPrismPackageManifest<PrismFabricManifest>(prismMetaBaseUrl, FABRIC_INTERMEDIARY_PACKAGE, intermediaryVersion),
@@ -1242,6 +1271,8 @@ async function downloadFabricMinecraftVersionToOpfsImpl(
 		...(loaderManifest.libraries ?? []),
 	];
 	const fabricLibraries = collectLibraryDownloads(fabricLibraryEntries, libraryBaseUrl, minecraftOsName);
+	let fabricDone = 0;
+	options.onProgress?.({ stage: "Downloading Fabric libraries", completed: 0, total: fabricLibraries.length });
 	await runConcurrently(fabricLibraries, maxConcurrentLibraryDownloads, async (library) => {
 		const libraryData = await downloadBinary(
 			library.url,
@@ -1253,6 +1284,7 @@ async function downloadFabricMinecraftVersionToOpfsImpl(
 		}
 		const libraryPath = `${opfsRootDirectory}/libraries/${library.relativePath}`;
 		await writeFileToOpfs(root, libraryPath, libraryData);
+		options.onProgress?.({ stage: "Downloading Fabric libraries", completed: ++fabricDone, total: fabricLibraries.length });
 	});
 
 	const fabricVersionId = ensureSafePathSegment(

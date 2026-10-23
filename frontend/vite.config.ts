@@ -3,6 +3,13 @@ import basicSsl from "@vitejs/plugin-basic-ssl";
 import { server as wisp, logging as wispLogging } from "@mercuryworkshop/wisp-js/server";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
+import { Agent } from "node:https";
+
+// Some WSL networks advertise IPv6 but cannot route it reliably. Keep normal
+// address selection by default; allow an explicit IPv4-only download proxy.
+const proxyAgent = process.env.IKVMCRAFT_PROXY_IPV4 === "1"
+	? new Agent({ family: 4, keepAlive: true })
+	: undefined;
 
 // A Wisp server on the dev server itself, at wss://<this origin>/wisp/, so the game's TCP/TLS traffic (epoxy, see
 // src/net.ts) no longer depends on an external proxy. It rides the HTTP server's `upgrade` event; vite's own HMR
@@ -46,10 +53,12 @@ const PROXY_TARGETS: Record<string, string> = {
 };
 
 const proxy = Object.fromEntries(
-	Object.entries(PROXY_TARGETS).map(([prefix, target]) => [
+	// Match the longer Maven Central alias before its prefix.
+	Object.entries(PROXY_TARGETS).sort(([a], [b]) => b.length - a.length).map(([prefix, target]) => [
 		prefix,
 		{
 			target,
+			agent: proxyAgent,
 			changeOrigin: true,
 			followRedirects: true,
 			rewrite: (path: string) => path.slice(prefix.length),
@@ -77,6 +86,16 @@ export default defineConfig({
 		port: 5021,
 		strictPort: true,
 		host: true,
-		allowedHosts: ["nyatop.internal.hgci.org", "100.64.0.10"]
+		allowedHosts: ["localhost", ".localhost"],
+	},
+	preview: {
+		headers: {
+			"Cross-Origin-Opener-Policy": "same-origin",
+			"Cross-Origin-Embedder-Policy": "require-corp",
+		},
+		proxy,
+		port: 5021,
+		strictPort: true,
+		host: "localhost",
 	},
 });

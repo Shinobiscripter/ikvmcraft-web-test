@@ -1,5 +1,7 @@
 # ikvmcraft
 
+For this fork's Linux/WSL build instructions, local HTTPS test launcher, browser requirements and observed test results, see [TESTING.md](TESTING.md).
+
 Modern Minecraft + drop-in mods loaded dynamically in the browser with mono-wasm and IKVM. Uses a custom fork of IKVM with exact OpenJDK classloading semantics and other wasm patches, as well as a custom fork of mono with a full wasm JIT tier significantly improving performance over interp/jiterp.
 
 ![Minecraft 26.2 with Fabulously Optimized modpack](assets/26.2-fabulouslyoptimized.png)

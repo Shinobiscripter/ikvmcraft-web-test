@@ -23,5 +23,9 @@
     "events": "^3.3.0",
     "streamx-webstream": "^1.2.12",
     "tar-stream": "^3.2.0"
-  }
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@10.34.7"
 }

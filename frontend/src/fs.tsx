@@ -433,6 +433,7 @@ export function OpfsExplorer(
 									URL.revokeObjectURL(url);
 								};
 								const remove = async () => {
+									if (!confirm(`Delete ${x.name}${isDir ? " and all its contents" : ""}?`)) return;
 									if (this.editing?.name === x.name) this.editing = null;
 									await this.path.removeEntry(x.name, { recursive: true });
 									this.path = this.path;

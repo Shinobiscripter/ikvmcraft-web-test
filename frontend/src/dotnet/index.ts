@@ -3,8 +3,8 @@ import type { ModuleAPI, MonoConfig, RuntimeAPI } from "../dotnetdefs";
 import { EpxTcpWs } from "../net";
 import { opfsInvalidate } from "../opfs";
 
-const wasm: ModuleAPI = await eval(`import("/_framework/dotnet.js")`);
-const dotnet = wasm.dotnet;
+let wasm: ModuleAPI;
+let dotnet: ModuleAPI["dotnet"];
 let runtime: RuntimeAPI;
 let config: MonoConfig;
 let exports: any;
@@ -117,6 +117,11 @@ function applyRuntimeOptionOverrides(options: string[]) {
 }
 
 export async function initDotnet(canvas: HTMLCanvasElement) {
+	// An absolute URL keeps Vite from adding ?import to this generated public
+	// module, which must execute unchanged with its sibling runtime resources.
+	const runtimeUrl = new URL("/_framework/dotnet.js", location.origin).href;
+	wasm = await import(/* @vite-ignore */ runtimeUrl);
+	dotnet = wasm.dotnet;
 	// emscripten proxy hackfix number 39847232303
 	(globalThis as any).Atomics.waitAsync = undefined;
 
@@ -180,10 +185,12 @@ export async function initDotnet(canvas: HTMLCanvasElement) {
 		.withResourceLoader((type: string, _name: string, defaultUri: string) => {
 			if (type !== "dotnetwasm") return null;
 			return fetch(defaultUri, { credentials: "same-origin" }).then(
-				(r) =>
-					new Response(r.body, {
+				(r) => {
+					if (!r.ok) throw new Error(`Runtime download failed: ${defaultUri}: HTTP ${r.status}`);
+					return new Response(r.body, {
 						headers: { "Content-Type": "application/wasm" },
-					})
+					});
+				}
 			);
 		})
 		.withEnvironmentVariable("WINK_GL_MAIN", winkGlMain ? "1" : "0")

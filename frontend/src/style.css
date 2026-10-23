@@ -57,3 +57,10 @@ body {
 	accent-color: var(--accent);
 	scrollbar-color: var(--accent);
 }
+
+.test-launcher { max-width: 64rem; padding: 1rem; margin: auto; height: 100%; overflow: auto; box-sizing: border-box; }
+.test-launcher fieldset { margin: 1rem 0; padding: 1rem; }
+.test-launcher label { display: inline-block; margin: .5rem; }
+.test-launcher button, .test-launcher input { padding: .5rem; margin: .2rem; }
+.test-launcher .launch { font-size: 1.5rem; font-weight: bold; width: 100%; }
+pre[role=alert] { white-space: pre-wrap; overflow: auto; max-height: 15rem; color: var(--error); }

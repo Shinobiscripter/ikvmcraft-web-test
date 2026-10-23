@@ -1,4 +1,4 @@
-import { ComponentInstance, css, Delegate, FC } from "dreamland/core";
+import { ComponentInstance, css, FC } from "dreamland/core";
 import "./style.css";
 import { initDotnet, play, dotnetState } from "./dotnet";
 import { loglisteners } from "./dotnet/log";
@@ -9,11 +9,11 @@ import {
 } from "./minecraft";
 import { OpfsExplorer } from "./fs";
 import { Button, Icon } from "./ui/Button";
-import { TextField } from "./ui/TextField";
+import { createTestLauncher, progressText } from "./test-launcher";
 import iconDns from "@ktibow/iconset-material-symbols/dns-outline";
 import iconCode from "@ktibow/iconset-material-symbols/code";
 import iconFolderOpen from "@ktibow/iconset-material-symbols/folder-open";
-import iconPlayArrow from "@ktibow/iconset-material-symbols/play-arrow";
+
 
 function LogView(this: FC<{ scrolling: boolean }>) {
 	const create = (color: string, log: string) => {
@@ -26,12 +26,14 @@ function LogView(this: FC<{ scrolling: boolean }>) {
 
 	this.cx.mount = () => {
 		const logroot = this.root as HTMLElement;
+		for (const line of (globalThis as any).logs ?? []) logroot.append(create("var(--fg)", line));
 		const frag = document.createDocumentFragment();
 
 		loglisteners.push((x) => frag.append(create(x.color, x.log)));
 		setInterval(() => {
 			if (frag.children.length > 0) {
 				logroot.appendChild(frag);
+				while (logroot.children.length > 2000) logroot.firstElementChild?.remove();
 				logroot.scrollTop = logroot.scrollHeight;
 			}
 		}, 50);
@@ -86,17 +88,26 @@ function Runner(
 			canvas: HTMLCanvasElement;
 			fsOpen: boolean;
 			loadState: string;
+			error: string;
 		}
 	>
 ) {
 	this.fsOpen = false;
+	this.error = "";
 	this.loadState = "Initializing runtime";
 
 	let version = this.version;
 	let fabric = this.fabric;
 	this.cx.mount = async () => {
+		const fail = (error: unknown) => {
+			console.error(`[runner] ${this.loadState}`, error);
+			this.error = `Failed at ${this.loadState || "Running"}\n${error instanceof Error ? error.stack ?? error.message : String(error)}`;
+		};
+		window.addEventListener("error", e => fail(e.error ?? e.message));
+		window.addEventListener("unhandledrejection", e => fail(e.reason));
+		try {
 		await initDotnet(this.canvas);
-		this.loadState = "Verifying assets";
+		this.loadState = "Checking installation";
 
 		if (new URLSearchParams(location.search).has("bench"))
 			console.debug("?bench: skipping the Minecraft download check");
@@ -112,15 +123,21 @@ function Runner(
 				this.loadState = "Downloading assets";
 				await downloadFabricMinecraftVersionToOpfs(version, {
 					loaderVersion: fabric,
+					onProgress: p => { this.loadState = progressText(p); },
 				});
 			} else {
-				console.debug(`downlaodead ${version} fabric ${fabric} already`);
+				console.debug(`Downloaded ${version} fabric ${fabric} already`);
 			}
 		}
 
-		this.loadState = "";
-
-		await play(`${version}-fabric-${fabric}`);
+		this.loadState = "Loading Fabric / Starting Minecraft";
+		const frames = setInterval(() => {
+			if (dotnetState.fps > 0) { this.loadState = ""; clearInterval(frames); }
+		}, 500);
+		try { await play(`${version}-fabric-${fabric}`); }
+		finally { clearInterval(frames); }
+		this.loadState = "Minecraft exited";
+		} catch (error) { fail(error); }
 	};
 
 	let toFixed = (x: number) => x.toFixed(0);
@@ -171,6 +188,12 @@ function Runner(
 				>
 					<Icon icon={iconFolderOpen} />
 				</Button>
+			</div>
+			<div role="status">{use(this.loadState).map(x => x || "Running (frames observed)")}</div>
+			<pre role="alert">{use(this.error)}</pre>
+			<div>
+				<Button on:click={() => location.reload()}>Retry / Return to Launcher</Button>
+				<Button on:click={() => this.canvas.requestFullscreen().catch(console.error)}>Fullscreen</Button>
 			</div>
 			<div class="canvas">
 				<div
@@ -285,55 +308,6 @@ Runner.style = css`
 	}
 `;
 
-function Launcher(
-	this: FC<
-		{
-			version: string;
-			fabric: string;
-			play: () => void;
-		},
-		{}
-	>
-) {
-	let ver = this.version,
-		fab = this.fabric;
-	return (
-		<div>
-			<Logo />
-			<p>This is a web port.</p>
-			<div class="settings">
-				<div>
-					<span>Minecraft version: </span>
-					<TextField value={use(this.version)} placeholder={ver} />
-				</div>
-				<div>
-					<span>Fabric Loader version: </span>
-					<TextField value={use(this.fabric)} placeholder={fab} />
-				</div>
-				<Button type="primary" icon="left" on:click={() => this.play()}>
-					<Icon icon={iconPlayArrow} />
-					Play
-				</Button>
-			</div>
-		</div>
-	);
-}
-Launcher.style = css`
-	:scope {
-		height: 100%;
-		margin: auto;
-
-		max-width: 50rem;
-		padding: 1rem;
-	}
-
-	.settings {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-	}
-`;
-
 function App(
 	this: FC<
 		{},
@@ -344,10 +318,11 @@ function App(
 		}
 	>
 ) {
-	this.version = "26.2";
+	this.version = localStorage.getItem("ikvmcraft.mc") ?? "1.16.5";
 	this.fabric = "0.19.5";
 
-	let play = async () => {
+	let play = async (version: string, fabric: string) => {
+		this.version = version; this.fabric = fabric;
 		this.runner = (
 			<Runner version={this.version} fabric={this.fabric} />
 		) as ComponentInstance<typeof Runner>;
@@ -356,11 +331,7 @@ function App(
 	return (
 		<div>
 			<div class="launcher" class:hidden={use(this.runner).map((x) => !!x)}>
-				<Launcher
-					version={use(this.version)}
-					fabric={use(this.fabric)}
-					play={play}
-				/>
+				{createTestLauncher(play)}
 			</div>
 			<div>{use(this.runner)}</div>
 		</div>

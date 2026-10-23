@@ -7,13 +7,12 @@ let client: EpoxyClient;
 await init({ module_or_path: wasm });
 
 // The Wisp server epoxy tunnels TCP/TLS through. Under the vite dev server that is the server itself (the
-// `local-wisp` plugin in vite.config.ts); a static production build has no such endpoint and keeps the public one.
-// `?wisp=<url>` overrides either, e.g. `?wisp=wss://anura.pro/` to compare against the external proxy.
+// `local-wisp` plugin in vite.config.ts). Preview uses the same local endpoint.
+// Static hosting must supply this endpoint or explicitly set `?wisp=<url>`.
 function wispUrl(): string {
 	const override = new URLSearchParams(location.search).get("wisp");
 	if (override) return override;
-	if (import.meta.env.DEV) return `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/wisp/`;
-	return "wss://anura.pro/";
+	return `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/wisp/`;
 }
 
 export function createClient() {
