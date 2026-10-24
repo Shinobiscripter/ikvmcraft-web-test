@@ -4,7 +4,7 @@
 
 **Minecraft 1.16.5 and 26.2, both with Fabric 0.19.5, reached their title screens in the webpage.** The complete custom IKVM/Mono/WASM application builds and runs. In the in-app Chromium 155 browser, installations into real OPFS passed SHA-1 verification, initialized Mono/IKVM, entered Fabric KnotClient, and rendered Minecraft menus and panoramas. The 1.16.5 installation also passed the reload-persistence check. No replacement runtime was used.
 
-The observed title screen identified itself as `Minecraft 1.16.5/Fabric (Modded)`. At capture the overlay reported 6 instantaneous FPS, 15.80 average FPS, 1,311 MiB WASM, 526 MiB native and 305/409 MiB GC used/heap; subsequent counters reached 3,013 frames with 1,310.5 MiB WASM. These are startup observations, not a benchmark. A singleplayer world and multiplayer connection have not been tested. The first startup took approximately three minutes, including Fabric remapping and Java class loading.
+The observed title screen identified itself as `Minecraft 1.16.5/Fabric (Modded)`. At capture the overlay reported 6 instantaneous FPS, 15.80 average FPS, 1,311 MiB WASM, 526 MiB native and 305/409 MiB GC used/heap; subsequent counters reached 3,013 frames with 1,310.5 MiB WASM. These are startup observations, not a benchmark. The first startup took approximately three minutes, including Fabric remapping and Java class loading. Singleplayer world creation, rendering, forward movement and saving were subsequently tested on October 24, with significant input/performance limits described below. Multiplayer has not been verified.
 
 Minecraft 26.2 reached the Mojang loading screen, then its accessibility welcome screen. Clicking Continue displayed `Minecraft 26.2 (Modded)` and the title menu. At capture it showed 59 instantaneous / 38.50 average FPS, 1,779 MiB WASM, 680 MiB native and 428/556 MiB GC used/heap; average FPS later reached approximately 58. First startup took approximately five minutes. The fullscreen control entered fullscreen successfully. The OPFS explorer opened the game folders and exported an actual F2 screenshot and `latest.log`. Local evidence is in the workspace's sibling `test-results/minecraft-26.2-title.png` and `test-results/minecraft-26.2.log` (the shared log includes both version runs).
 
@@ -26,6 +26,7 @@ Upstream inspected: `r58Playz/ikvmcraft`, commit `246560a73e6399a7ac0d5cabd750fb
 | Dynamic Fabric mod loading | **Passed on 1.16.5**; uploaded client entrypoint ran and wrote a file through Java NIO. Uploaded JAR remained listed after browser/server restart. |
 | Java HTTPS through runtime networking | **Passed on 1.16.5**; test mod received HTTP 200 and a nonempty body from Fabric metadata. Multiplayer/authentication remain unverified. |
 | Offline installed-game verification | **Passed for both configurations in the Node adapter**; zero fetch calls, with deliberately truncated mappings and clients detected. |
+| 1.16.5 singleplayer | Creative Superflat world rendered; forward movement changed player coordinates; Save and Quit completed and OPFS contained world metadata, playerdata and region directories. Pointer lock failed and in-world performance was approximately 1 FPS. |
 | GitHub fork | Created: [Shinobiscripter/ikvmcraft-web-test](https://github.com/Shinobiscripter/ikvmcraft-web-test), fork of r58Playz/ikvmcraft. The existing separate `ikvmcraft` repository was retained. |
 
 The downloader tests use the unchanged public download APIs from `frontend/src/minecraft.ts`, actual HTTPS proxy requests and temporary files. A Node filesystem adapter substitutes for OPFS in this integration test. This proves neither browser filesystem semantics nor Minecraft execution. `sha1` mode checks supplied hashes/sizes and JAR signatures; some Fabric metadata has no published hash, so those files only receive available checks. Game files remain outside Git, in temporary test storage or browser OPFS.
@@ -205,6 +206,16 @@ Remaining nonfatal errors observed in the exported shared game log:
 
 The final server-check run passed HTTPS/isolation, all checked metadata/Maven routes, the .NET bootstrap and local Wisp upgrade. This is not proof of sustained network reliability or multiplayer compatibility.
 
+## Singleplayer test — October 24
+
+With the smoke mod installed, Minecraft 1.16.5 / Fabric 0.19.5 created a Creative Superflat world named `smoke`, with structures disabled. The integrated server generated the spawn area to completion and the client rendered grass terrain, clouds, slimes, the player's hand and hotbar. Holding W changed the debug coordinates from approximately `(166.5, 4, 6.5)` to `(166.4, 4, 10.5)`. Individual key presses worked for world naming and F2/F3; bulk automated text entry dropped characters, and some menu inputs required a held key/click and time for the next rendered frame.
+
+**This is not yet a comfortable gameplay result.** The in-app browser reported `The root document of this element is not valid for pointer lock.` Direct canvas input did not resolve it. GLFW also logged unavailable `glfwSetCursorPos` and user-gesture-related pointer-lock errors. Mouse-look remains unverified. In-world rendering was approximately 0–2 FPS, usually 1, with WASM memory rising to about 1,877 MiB. The integrated server reported roughly 229–285 ms ticks and `Can't keep up` warnings. The game was using a 16-chunk render distance; lowering settings, comparing a standalone Chromium window, and profiling the custom runtime/WebGPU path are next tests. The browser restriction and slow frame rate are observations, not a proven common root cause.
+
+`Save and Quit to Title` completed. The exported game log reports player/world saving and `All chunks are saved` for all three dimensions. The existing OPFS explorer showed `/minecraft/saves/smoke/level.dat`, `level.dat_old`, `playerdata`, `region`, and dimension directories. Reopening this world after a complete browser restart has not yet been tested. The world and test mod remain in browser storage for follow-up; do not switch this save to 26.2 without a separate backup.
+
+Local evidence outside Git: `test-results/minecraft-1.16.5-world.png` is Minecraft's actual F2 screenshot, exported through the OPFS explorer, and `test-results/minecraft-1.16.5-world.log` contains startup, mod/network probe, world generation and saving diagnostics. Game binaries and saves are not included in the fork or source archive.
+
 ## Optional Fabric mod and runtime network test
 
 The source-only fixture in `tests/smoke-mod` exercises a Fabric client entrypoint, Java NIO file creation and Java HTTPS through the existing runtime networking. It does not modify gameplay or authenticate an account. Build it separately (a JDK is optional for this test, not required to build IKVMcraft):
@@ -230,7 +241,7 @@ This is temporary and resets when WSL restarts. It retains normal TLS certificat
 
 ## Remaining work / public hosting
 
-- Extend title-screen and small-mod verification to singleplayer world creation, gameplay, larger mods and authenticated networking; investigate actual exceptions with the retained diagnostics.
+- Investigate pointer lock in a standalone Chromium window and the approximately 1 FPS singleplayer result; test lower graphics settings and profile before changing the custom runtime. Verify save reopening after browser restart, then extend to 26.2 gameplay, larger mods and authenticated networking.
 - Keep source changes on the fork's testing branch. Do not upload game files, test download directories or generated runtime caches.
 - Provide a real trusted TLS certificate and maintain COOP/COEP, WASM MIME types, worker paths and cache coherence for every runtime artifact.
 - Replace the development server with an explicit production proxy/Wisp deployment, preserving route behavior and restricting destinations, origins and abuse/traffic limits.
