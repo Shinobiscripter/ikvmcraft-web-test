@@ -1,6 +1,6 @@
 # IKVMcraft local testing
 
-## Status — 2026-10-23
+## Status — 2026-10-24
 
 **Minecraft 1.16.5 and 26.2, both with Fabric 0.19.5, reached their title screens in the webpage.** The complete custom IKVM/Mono/WASM application builds and runs. In the in-app Chromium 155 browser, installations into real OPFS passed SHA-1 verification, initialized Mono/IKVM, entered Fabric KnotClient, and rendered Minecraft menus and panoramas. The 1.16.5 installation also passed the reload-persistence check. No replacement runtime was used.
 
@@ -23,7 +23,9 @@ Upstream inspected: `r58Playz/ikvmcraft`, commit `246560a73e6399a7ac0d5cabd750fb
 | 1.16.5 + Fabric 0.19.5 | Browser install and SHA-1 verification passed; title screen rendered. Node adapter also detected a deliberately truncated client. |
 | 26.2 + Fabric 0.19.5 | Browser install and SHA-1 verification passed; title screen rendered. Node adapter also detected a deliberately truncated client. |
 | Browser OPFS persistence, runtime initialization, title screen | **Passed**; reload persistence checked on 1.16.5, runtime/title screen on both versions |
-| Mod loading and in-game networking | **Not verified** |
+| Dynamic Fabric mod loading | **Passed on 1.16.5**; uploaded client entrypoint ran and wrote a file through Java NIO. Uploaded JAR remained listed after browser/server restart. |
+| Java HTTPS through runtime networking | **Passed on 1.16.5**; test mod received HTTP 200 and a nonempty body from Fabric metadata. Multiplayer/authentication remain unverified. |
+| Offline installed-game verification | **Passed for both configurations in the Node adapter**; zero fetch calls, with deliberately truncated mappings and clients detected. |
 | GitHub fork | Created: [Shinobiscripter/ikvmcraft-web-test](https://github.com/Shinobiscripter/ikvmcraft-web-test), fork of r58Playz/ikvmcraft. The existing separate `ikvmcraft` repository was retained. |
 
 The downloader tests use the unchanged public download APIs from `frontend/src/minecraft.ts`, actual HTTPS proxy requests and temporary files. A Node filesystem adapter substitutes for OPFS in this integration test. This proves neither browser filesystem semantics nor Minecraft execution. `sha1` mode checks supplied hashes/sizes and JAR signatures; some Fabric metadata has no published hash, so those files only receive available checks. Game files remain outside Git, in temporary test storage or browser OPFS.
@@ -161,7 +163,7 @@ Use a normal persistent profile with hardware acceleration and a functioning Web
 
 1. Open the local URL and handle the certificate warning. Check `crossOriginIsolated === true` in DevTools and that no capability error is shown.
 2. Select **1.16.5**, **0.19.5**, and leave mods empty. Click **Install/Download**. Observe metadata, library, client and asset stages; counts are actual completed files. Keep Logs/DevTools open.
-3. Run **Verify installation**. It uses the existing `sha1` mode. Reload and confirm the installation is still available in OPFS. An install-status check can consult Mojang mappings metadata and need network access.
+3. Run **Verify installation**. It uses the existing `sha1` mode. Reload and confirm the installation is still available in OPFS. New installs cache Mojang's mappings declaration in `client-mappings.json`, so verification needs no network. Older installations upgrade this metadata on their next successful lookup; that first lookup still needs network. This does not make the webpage/runtime itself available offline.
 4. Click **LAUNCH**. Observe Initializing runtime → Checking installation → Loading Fabric / Starting Minecraft. Confirm `_framework` JS/WASM/DLL requests succeed. Watch for `[MinecraftLauncher] Main class: ...KnotClient` and `[IKVM]` output.
 5. Confirm the actual Minecraft title screen is drawn. Record a screenshot, browser version, GPU, startup time, FPS and memory. “Running (frames observed)” alone is not sufficient proof.
 6. Test fullscreen, pointer interaction, filesystem explorer, thread/JIT dumps, and return/reload. Verify logs or saves under OPFS `/minecraft` survive reload.
@@ -203,9 +205,32 @@ Remaining nonfatal errors observed in the exported shared game log:
 
 The final server-check run passed HTTPS/isolation, all checked metadata/Maven routes, the .NET bootstrap and local Wisp upgrade. This is not proof of sustained network reliability or multiplayer compatibility.
 
+## Optional Fabric mod and runtime network test
+
+The source-only fixture in `tests/smoke-mod` exercises a Fabric client entrypoint, Java NIO file creation and Java HTTPS through the existing runtime networking. It does not modify gameplay or authenticate an account. Build it separately (a JDK is optional for this test, not required to build IKVMcraft):
+
+```bash
+sudo apt-get install openjdk-21-jdk-headless curl
+bash scripts/build-smoke-mod.sh
+```
+
+Upload the printed `ikvmcraft-smoke.jar` path using the launcher, then launch 1.16.5 / 0.19.5. The browser run logged `CLIENT_ENTRYPOINT_OK`, `FILE_WRITE_OK`, `HTTPS_STATUS=200` and `HTTPS_BODY_OK`. The file is `/minecraft/ikvmcraft-smoke-test.txt`; the mod is in the existing shared `/minecraft/mods` folder. The upload persisted across the subsequent browser/server restart. Remove the test mod using its launcher Remove button and confirmation when finished, then restart Minecraft. Removal and broad modpack compatibility have not been verified. The fixture was executed on 1.16.5 only.
+
+The updated installer integration test disables fetch after installation and verifies both configurations entirely from local files, then truncates mappings and clients to check corruption detection. Both configurations passed. The application still uses its original OPFS architecture and custom runtime.
+
+### WSL network troubleshooting observed on this host
+
+IPv4 selection alone did not resolve all upstream timeouts. Windows could reach the same hosts while WSL stalled during the TLS handshake. Temporarily reducing WSL's interface MTU from 1500 to 1400 restored default TLS requests and allowed the complete installer tests to pass. This suggests a path-MTU issue on this host; it is not a required project setting. If the same symptoms occur, inspect the interface name with `ip link` before trying:
+
+```bash
+sudo ip link set dev eth0 mtu 1400
+```
+
+This is temporary and resets when WSL restarts. It retains normal TLS certificate verification. Do not apply it blindly to other networks. On October 24, after restarting WSL and applying the same workaround, all server checks passed again, including both Maven proxies and the Wisp upgrade.
+
 ## Remaining work / public hosting
 
-- Extend title-screen verification to singleplayer world creation, gameplay, mods and authenticated networking; investigate actual exceptions with the retained diagnostics.
+- Extend title-screen and small-mod verification to singleplayer world creation, gameplay, larger mods and authenticated networking; investigate actual exceptions with the retained diagnostics.
 - Keep source changes on the fork's testing branch. Do not upload game files, test download directories or generated runtime caches.
 - Provide a real trusted TLS certificate and maintain COOP/COEP, WASM MIME types, worker paths and cache coherence for every runtime artifact.
 - Replace the development server with an explicit production proxy/Wisp deployment, preserving route behavior and restricting destinations, origins and abuse/traffic limits.

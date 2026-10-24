@@ -916,6 +916,9 @@ async function downloadMinecraftVersionToOpfsImpl(
 	await writeFileToOpfs(root, clientJarPath, clientJarData);
 
 	const clientMappingsDownload = await resolveMojangClientMappingsDownload(resolvedVersion, mojangVersionManifestUrl);
+	// Preserve the authoritative declaration (including an explicit null) so
+	// future local verification does not depend on Mojang being reachable.
+	await writeFileToOpfs(root, `${versionDirectory}/client-mappings.json`, JSON.stringify(clientMappingsDownload));
 	let clientMappingsPath: string | null = null;
 	if (clientMappingsDownload !== null) {
 		const mappingsData = await downloadBinary(
@@ -1069,9 +1072,25 @@ async function isMinecraftVersionDownloadedImpl(
 		const mappingsLookupVersion = versionManifest.inheritsFrom ?? resolvedVersion;
 		let clientMappingsDownload: DownloadInfo | null = null;
 		let clientMappingsLookupFailed = false;
+		let cachedMappingsMetadata = false;
 		try {
-			clientMappingsDownload = await resolveMojangClientMappingsDownload(mappingsLookupVersion, mojangVersionManifestUrl);
+			const metadataPath = `${versionDirectory}/client-mappings.json`;
+			if (await fileExists(root, metadataPath)) {
+				cachedMappingsMetadata = true;
+				clientMappingsDownload = JSON.parse(await readFileText(root, metadataPath));
+				if (clientMappingsDownload !== null && (typeof clientMappingsDownload !== "object" || typeof clientMappingsDownload.url !== "string")) {
+					throw new Error("Invalid cached client mappings declaration");
+				}
+			} else {
+				// Upgrade older installations once, without downloading the game again.
+				clientMappingsDownload = await resolveMojangClientMappingsDownload(mappingsLookupVersion, mojangVersionManifestUrl);
+				await writeFileToOpfs(root, metadataPath, JSON.stringify(clientMappingsDownload));
+			}
 		} catch (error) {
+			if (cachedMappingsMetadata) {
+				warnDownloadCheckFailure(`Invalid mappings metadata for '${mappingsLookupVersion}'; reinstall to repair it.`, error);
+				return false;
+			}
 			clientMappingsLookupFailed = true;
 			warnDownloadCheckFailure(
 				`Could not consult Mojang manifest to verify client mappings for '${mappingsLookupVersion}' — skipping mappings check.`,
@@ -1312,6 +1331,10 @@ async function downloadFabricMinecraftVersionToOpfsImpl(
 	await writeFileToOpfs(root, fabricVersionJsonPath, mergedManifestText);
 
 	await copyFileInOpfs(root, vanillaClientJarPath, fabricClientJarPath);
+	const vanillaMappingsMetadata = `${vanillaVersionDirectory}/client-mappings.json`;
+	if (await fileExists(root, vanillaMappingsMetadata)) {
+		await copyFileInOpfs(root, vanillaMappingsMetadata, `${fabricVersionDirectory}/client-mappings.json`);
+	}
 
 	let fabricClientMappingsPath: string | null = null;
 	if (await fileExists(root, vanillaClientMappingsPath)) {

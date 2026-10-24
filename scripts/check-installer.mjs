@@ -65,6 +65,21 @@ for (const version of ["1.16.5", "26.2"]) {
 	assert.equal(result.version, id);
 	assert.equal(await isMinecraftVersionDownloaded(id, { verification: "sha1" }), true);
 	console.log(`PASS downloaded and SHA-1 verified ${id}`);
+	const onlineFetch = globalThis.fetch;
+	let offlineRequests = 0;
+	globalThis.fetch = async () => { offlineRequests++; throw new Error("Test network is offline"); };
+	try {
+		assert.equal(await isMinecraftVersionDownloaded(id, { verification: "sha1" }), true);
+		assert.equal(offlineRequests, 0, "verification must use persisted mappings metadata");
+		if (result.clientMappingsPath) {
+			const mapping = join(root, result.clientMappingsPath);
+			const mappingBytes = await readFile(mapping);
+			await writeFile(mapping, mappingBytes.subarray(0, 16));
+			assert.equal(await isMinecraftVersionDownloaded(id, { verification: "sha1" }), false);
+			await writeFile(mapping, mappingBytes);
+		}
+	} finally { globalThis.fetch = onlineFetch; }
+	console.log(`PASS offline verification and corrupt mappings detection for ${id}`);
 	// A truncated client must not be reported as installed.
 	const client = join(root, result.clientJarPath);
 	const bytes = await readFile(client);

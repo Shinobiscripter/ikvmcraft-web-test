@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "ikvmcraft_smoke",
+  "version": "1.0.0",
+  "name": "IKVMcraft development smoke test",
+  "description": "Test-only Java entrypoint, OPFS write and public HTTPS request. No gameplay modifications.",
+  "environment": "client",
+  "entrypoints": { "client": ["ikvmcraft.smoke.SmokeClient"] },
+  "depends": { "fabricloader": ">=0.19.5", "minecraft": ">=1.16.5" }
+}
