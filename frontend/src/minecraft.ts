@@ -1,6 +1,7 @@
 import { console_debug } from "./dotnet/log";
 import { opfsInvalidate } from "./opfs";
 import { client } from "./net";
+import { bundledUrl } from "./personal-bundle";
 
 const DEFAULT_PRISM_META_BASE_URL = "https://meta.prismlauncher.org/v1/";
 const DEFAULT_MOJANG_VERSION_MANIFEST_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
@@ -259,7 +260,7 @@ class DownloadHttpError extends Error {
 }
 
 async function downloadFetch(url: string, signal: AbortSignal, useWisp: boolean): Promise<Response> {
-	const target = new URL(url, location.href);
+	const target = new URL(bundledUrl(url), location.href);
 	const init: RequestInit = { signal, cache: "no-store", redirect: "follow" };
 	if (target.origin === location.origin) return await fetch(target, init);
 	const prefix = DEV_PROXY_PREFIX_BY_HOST[target.hostname];

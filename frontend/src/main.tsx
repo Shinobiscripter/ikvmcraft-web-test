@@ -1,5 +1,6 @@
 import { ComponentInstance, css, FC, Stateful } from "dreamland/core";
 import "./style.css";
+import { loadPersonalBundle, installDefaultMods } from './personal-bundle';
 import { initDotnet, play, dotnetState, MinecraftAuthInfo } from "./dotnet";
 import { loglisteners } from "./dotnet/log";
 import { dumpWasmJit } from "./dotnet/jitbench";
@@ -127,6 +128,7 @@ function Runner(
 		this.loadError = "";
 		this.downloadProgress = null;
 		try {
+			await loadPersonalBundle();
 			if (!runtimeReady) {
 				this.loadState = "Initializing runtime";
 				await initDotnet(this.canvas);
@@ -151,6 +153,8 @@ function Runner(
 			}
 
 			this.downloadProgress = null;
+			this.loadState = "Installing default performance mods";
+			await installDefaultMods(version, fabric);
 			this.loadState = "";
 			await play(`${version}-fabric-${fabric}`, this.auth);
 		} catch (error) {
@@ -675,7 +679,7 @@ function App(
 		}
 	>
 ) {
-	this.version = "26.2";
+	this.version = "26.3";
 	this.fabric = "0.19.5";
 
 	let play = async (info: MinecraftAuthInfo) => {

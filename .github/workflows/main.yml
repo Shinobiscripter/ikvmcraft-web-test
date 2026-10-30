@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - master 
+      - personal-private 
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -52,25 +52,3 @@ jobs:
           name: ikvmcraft
           path: frontend/dist/
           compression-level: 6
-  deploy:
-    name: Deploy to ikvmcraft.r58playz.dev
-    runs-on: ubuntu-latest
-    needs: build
-    permissions:
-      contents: read
-      deployments: write
-
-    steps:
-      - name: Get artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: ikvmcraft
-          path: dist/
-
-      - name: Deploy
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
-          command: pages deploy dist --project-name=ikvmcraft

@@ -10,3 +10,6 @@
 /jars/*
 !/jars/.gitkeep
 /.jvmdg
+/frontend/public/private-bundle/
+/frontend/node_modules/
+/frontend/dist/
